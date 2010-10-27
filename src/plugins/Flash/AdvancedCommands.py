@@ -72,7 +72,7 @@ class scan_path(pyflagsh.command):
             
         ## FIXME For massive images this should be broken up, as in the old GUI method
         dbh=DB.DBO(self.environment._CASE)
-        dbh.execute("select inode.inode from inode join file on file.inode = inode.inode where file.path rlike %r", fnmatch.translate(path))
+        dbh.execute("select inode.inode from inode join file on file.inode = inode.inode where file.path rlike %r", DB.glob2re(path))
 
         pdbh = DB.DBO()
         pdbh.mass_insert_start('jobs')
@@ -156,7 +156,7 @@ class scan(pyflagsh.command):
 
         ## Try to glob the inode list:
         dbh=DB.DBO(self.environment._CASE)
-        dbh.execute("select inode from inode where inode rlike %r",fnmatch.translate(self.args[0]))
+        dbh.execute("select inode from inode where inode rlike %r",DB.glob2re(self.args[0]))
         pdbh = DB.DBO()
         pdbh.mass_insert_start('jobs')
         ## This is a cookie used to identify our requests so that we

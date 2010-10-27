@@ -35,7 +35,6 @@ import pyflag.Graph as Graph
 import pyflag.IO as IO
 import pyflag.Registry as Registry
 from pyflag.ColumnTypes import StringType, TimestampType, InodeIDType, FilenameType, IntegerType, InodeType
-import fnmatch
 import pyflag.Magic as Magic
 
 class TypeScan(Scanner.GenScanFactory):
@@ -58,7 +57,7 @@ class TypeScan(Scanner.GenScanFactory):
         path = path_glob
         if not path.endswith("*"): path = path + "*"  
         db = DB.DBO(self.case)
-        db.execute("delete from type where inode_id in (select inode_id from file where file.path rlike %r)", fnmatch.translate(path))
+        db.execute("delete from type where inode_id in (select inode_id from file where file.path rlike %r)", DB.glob2re(path))
         Scanner.GenScanFactory.reset_entire_path(self, path_glob)
         
     def destroy(self):

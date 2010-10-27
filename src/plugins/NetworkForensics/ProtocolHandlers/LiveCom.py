@@ -165,7 +165,6 @@ class LiveTables(FlagFramework.EventHandler):
         `present` enum('yes', 'no') default 'no',
         primary key (`id`))""")
 
-import fnmatch
 
 class HotmailScanner(Scanner.GenScanFactory):
     """ Detects Live.com/Hotmail web mail sessions """
@@ -176,7 +175,7 @@ class HotmailScanner(Scanner.GenScanFactory):
     def multiple_inode_reset(self, inode_glob):
         Scanner.GenScanFactory.multiple_inode_reset(self, inode_glob)
         dbh = DB.DBO(self.case)
-        sql = fnmatch.translate(inode_glob)
+        sql = DB.glob2re(inode_glob)
         dbh.delete("webmail_messages", where="inode_id in (select inode_id from inode where inode rlike %r)" % sql) 
     
     class Scan(Scanner.StoreAndScanType):

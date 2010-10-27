@@ -115,6 +115,16 @@ def escape(result, quote='\''):
 
     return result
 
+def glob2re(glob):
+    """ Convert a shell wildcard to a mysql compatible regex for use with rlike """
+    # special chars are *, ? which are replaced by ".*" and "." respectively (if not escaped)
+    # inverse set syntax is also converted from [!abc] to [^abc]
+    regex = glob
+    regex = re.sub("(?<!\\\)\*", ".*", regex)
+    regex = re.sub("(?<!\\\)\?", ".", regex)
+    regex = re.sub("(?<!\\\)\[!", "[^", regex)
+    return regex
+
 class DBError(Exception):
     """ Generic Database Exception """
     pass

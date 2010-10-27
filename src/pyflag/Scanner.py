@@ -43,7 +43,6 @@ import re
 import pyflag.Registry as Registry
 import pyflag.DB as DB
 import pyflag.FlagFramework as FlagFramework
-import fnmatch
 import ScannerUtils
 import pyflag.CacheManager as CacheManager
 
@@ -169,7 +168,7 @@ class GenScanFactory:
         """ This method modifies the database to reset the scanners. It takes an argument which is a glob of the inodes to be reset. It does this for performance reasons. Each scanner is expected to clean up after itself. """
 
         ## Here we do the default (clear scanner_cache field) and hope that inherited classes either deal with it or call us
-        sql = fnmatch.translate(inode_glob)
+        sql = DB.glob2re(inode_glob)
         db = DB.DBO(self.case)
         db.execute("update inode set scanner_cache = REPLACE(scanner_cache, %r, '') where inode rlike %r", (self.__class__.__name__, sql))
                    
@@ -181,7 +180,7 @@ class GenScanFactory:
         path = path_glob
         if not path.endswith("*"): path = path + "*"  
         db = DB.DBO(self.case)
-        db.execute("update inode join file on file.inode = inode.inode set scanner_cache = REPLACE(scanner_cache, %r, '') where file.path rlike %r",(self.__class__.__name__, fnmatch.translate(path)))
+        db.execute("update inode join file on file.inode = inode.inode set scanner_cache = REPLACE(scanner_cache, %r, '') where file.path rlike %r",(self.__class__.__name__, DB.glob2re(path)))
         
     ## Relative order of scanners - Higher numbers come later in the order
     order=10
