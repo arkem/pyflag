@@ -491,7 +491,7 @@ class DBFS(FileSystem):
     def exists(self,path):
         dir,file=posixpath.split(path)
         dbh=DB.DBO(self.case)
-        dbh.execute("select mode from file where path=%r and name=%r limit 1",(dir,file))
+        dbh.execute("select mode from file where path rlike \"%s\" and name=%r limit 1", "^%s/?$" % dir, file)
         row=dbh.fetch()
         if row:
             return 1
