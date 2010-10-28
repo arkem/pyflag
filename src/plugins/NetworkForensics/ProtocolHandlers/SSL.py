@@ -131,9 +131,6 @@ class SSLScanner(StreamScannerFactory):
         # and we have processed both the forward and reverse streams
         try:
             fd = self.fsfd.open(inode_id=inode_id)
-            if fd.reverse < inode_id:
-                return
-
             parent = "".join(inode.split('|')[:-1])
             reverse_inode = "%s|S%d|s%d" % (parent, fd.reverse, fd.reverse)
             self.fsfd.open(inode=reverse_inode) # raises if the stream can't be opened yet (no keys)
@@ -141,7 +138,10 @@ class SSLScanner(StreamScannerFactory):
 
             if not self.fsfd.exists(new_path):
                 print "Creating Combined VFS"
-                new_inode = "%s|s%d/%d" % (parent, inode_id, fd.reverse)
+                if inode_id < fd.reverse:
+                    new_inode = "%s|s%d/%d" % (parent, inode_id, fd.reverse)
+                else:
+                    new_inode = "%s|s%d/%d" % (parent, fd.reverse, inode_id)
                 new_inode_id = self.fsfd.VFSCreate(None, new_inode, new_path)
 
                 # scan it!
@@ -150,7 +150,8 @@ class SSLScanner(StreamScannerFactory):
 
                 # also poke the HTTP scanner directly if selected
                 for scanner in factories:
-                    if scanner.__class__ == "HTTP.HTTPScanner":
+                    if str(scanner.__class__) == "HTTP.HTTPScanner":
+                        print "Calling HTTP Scanner!"
                         scanner.process_stream(fd, factories)
 
         except (IOError, TypeError), e:
