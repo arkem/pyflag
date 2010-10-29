@@ -114,9 +114,14 @@ class StreamFile(File):
 
     def make_tabs(self):
         names, cbs = File.make_tabs(self)
+        
+        for name, cb in zip(names, cbs):
+            if name == "Show Packets" or name == "Combined stream":
+                names.remove(name)
+                cbs.remove(cb)
 
-        names.extend( [ "Show Packets", "Combined stream", "IPID plot"])
-        cbs.extend([ self.show_packets, self.combine_streams, self.ipid_plot ])
+        names.extend( [ "Show Packets", "Combined stream"])
+        cbs.extend([ self.show_packets, self.combine_streams ])
 
         return names, cbs
 
@@ -154,13 +159,15 @@ class StreamFile(File):
         dbh2 = dbh.clone()
 
         ## These are the fds for individual streams
+        fsfd = FileSystem.DBFS(self.case)
         fds = []
         for s in stream_ids:
             try:
-                fd = CacheManager.MANAGER.open(dbh.case,
-                                               "%s|S%s" % (self.fd.inode, s))
+                _, inode, _ = fsfd.lookup(inode_id=s)
+                fd = CacheManager.MANAGER.open(dbh.case, inode)
                 fds.append(fd)
             except IOError,e:
+                print "IOError while opening fds: %s, %s" % (fds, e)
                 fds.append(-1)
 
         # These are the deltas to be applied to the sequence numbers of each
@@ -255,7 +262,6 @@ class StreamFile(File):
             except: pass
         
         ## Now create the stream in the VFS:
-        fsfd = FileSystem.DBFS(self.case)
         inode = self.inode[:self.inode.rfind("|")] +"|S%s" % stream_ids[0]
         old_pathname, inode, inode_id = fsfd.lookup(inode = inode)
         if not old_pathname: old_pathname = "lost+find/%s" % inode
@@ -327,12 +333,14 @@ class StreamFile(File):
         """ Returns an fd opened to the combined stream """
         ## If we are already a combined stream, we just return ourselves
         inode = self.inode.split("|")[-1]
+        print inode, self.inode
 
         if '/' in inode:
             self.forward_id = int(inode[1:].split("/")[0])
             return self
 
         self.forward_id = self.inode_id
+        print self.forward_id, self.reverse
         fsfd = FileSystem.DBFS(self.case)
         return fsfd.open(inode="%s/%s" % (self.inode,self.reverse))
 

@@ -77,7 +77,9 @@ class HTTP:
 
         We should be positioned at the start of the response after this.
         """
+        print line
         m=self.request_re.search(line)
+        print m
         if not m: return False
 
         self.request = dict(url=m.group(2),
@@ -357,16 +359,26 @@ class HTTPScanner(StreamScannerFactory):
         allows us to processes HTTP connections on unusual ports. This
         situation might arise if HTTP proxies are used for example.
         """
+        print "HTTP processing stream %s(%s)" % (stream, stream.inode_id)
         if stream.reverse:
-            combined_inode = "I%s|S%s/%s" % (stream.fd.name, stream.inode_id, stream.reverse)
+            _, inode, _ = self.fsfd.lookup(inode_id=stream.inode_id)
+            parent = inode.rsplit('|', 1)[0]
+            combined_inode = "%s|S%s/%s" % (parent, stream.inode_id, stream.reverse)
+            print combined_inode
             try:
                 fd = self.fsfd.open(inode=combined_inode)
             ## If we cant open the combined stream, we quit (This could
             ## happen if we are trying to operate on a combined stream
             ## already
-            except IOError: return
+            except IOError, e:
+                print "IOError opening combined inode: %s" % e
+                return
         else:
             fd = stream
+            print fd.readptr
+            fd.seek(0)
+            _, combined_inode, _ = self.fsfd.lookup(inode_id=stream.inode_id)
+            print fd,fd.__class__, combined_inode
             
         p=HTTP(fd,self.fsfd)
         ## Check that this is really HTTP

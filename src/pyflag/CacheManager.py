@@ -357,7 +357,8 @@ class DirectoryCacheManager:
         filename = self.get_temp_path(case, inode)
         try:
             return CacheFile(case, filename, inode_id)
-        except IOError:
+        except IOError, e:
+            #print "IOError, inode %s: %s" % (inode, e)
             new_filename = self.get_temp_path_old(case,inode)
             return CacheFile(case, new_filename, inode_id)
 

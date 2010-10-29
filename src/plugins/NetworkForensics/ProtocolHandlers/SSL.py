@@ -41,6 +41,7 @@ from pyflag.FileSystem import File, DBFS
 import Crypto.Cipher.DES3 as DES3
 import Crypto.Cipher.ARC4 as RC4
 import pyflag.Scanner as Scanner
+import pyflag.CacheManager as CacheManager
 import posixpath
 
 config.add_option("SSL_PORTS", default='[443,]',
@@ -81,6 +82,7 @@ def read_chunk(fd):
         version, length = struct.unpack(format, fd.read(struct.calcsize(format)))
 
     data = fd.read(length)
+    #print type, length
     return type, data, length
 
 def parse_handshake(data, length):
@@ -115,48 +117,120 @@ class SSLScanner(StreamScannerFactory):
     default = True
     group = "NetworkScanners"
 
-    def complete_stream(self, inode_id, factories):
-        # we can now add a VFS node for the decrypted content:
+    def complete_stream(self, forward_id, reverse_id, factories):
+    
         dbh = DB.DBO(self.case)
-        dbh.execute("select cipher, mac, packet_id from sslkeys where inode_id=%r", inode_id)
-        row = dbh.fetch()
-        path,inode,inode_id=self.fsfd.lookup(inode_id=inode_id)
-        new_inode_id = self.fsfd.VFSCreate(inode, "s%d" % inode_id, "decrypted")
 
-        # scan it!
-        fd = self.fsfd.open(inode_id = new_inode_id)
-        Scanner.scanfile(self.fsfd, fd, factories)
+        # complete the processing of both streams
+        new_ids = []
+        for inode_id in (forward_id, reverse_id):
+            # get a new inode_id, inode, path
+            dbh.insert('inode', _inode_id='NULL', _fast=True)
+            new_inode_id = dbh.autoincrement()
+            dbh.delete('inode', where='inode_id = %s' % new_inode_id)
+
+            path, inode, _ = self.fsfd.lookup(inode_id=inode_id)
+            new_inode = "%s|S%d" % (inode, new_inode_id)
+            new_path = "%s/decrypted" % path
+
+            # decrypt the stream, and as we do, build the connection
+            # tables to refer back to the original packets
+            dbh.execute("select packet_id, cipher, mac, key_data from sslkeys where inode_id=%r", inode_id)
+            row = dbh.fetch()
+
+            cipher = row['cipher']
+            mac = row['mac']
+            key = row['key_data']
+
+            # setup cipher
+            if cipher == "3des":
+                dec = DES3.new(key[8:], DES3.MODE_CBC, key[:8])
+            elif cipher == "rc4":
+                dec = RC4.new(key)
+            else:
+                print "unsupported cipher %s" % cipher
+
+            # skip the unencrypted stuff
+            fd = self.fsfd.open(inode_id = inode_id)
+            while True:
+                type, data, length = read_chunk(fd)
+                if type==20 and length==1:
+                    break
+
+            # The first chunk is an encrypted "Handshake Finished" message
+            type, data, skiplen = read_chunk(fd)
+            remove_padding_and_checksum(dec.decrypt(data), cipher, mac)
+            
+            # create a cache file
+            out_fd = CacheManager.MANAGER.create_cache_fd(dbh.case, new_inode, inode_id=new_inode_id)
+            out_fd_len = 0
+            while True:
+                try:
+                    type, ciphertext, length = read_chunk(fd)
+                    data = remove_padding_and_checksum(dec.decrypt(ciphertext), cipher, mac)
+                    # copy a "packet" entry for this ssl record, updating the length and cache_offset fields
+                    dbh.execute("insert into connection (inode_id, packet_id, seq, length, cache_offset) (select %r, packet_id, %r, %r, %r from connection where packet_id=%r)", (new_inode_id, out_fd_len, len(data), out_fd_len, fd.get_packet_id()))
+                    out_fd.write(data)
+                    out_fd_len += len(data)
+                except (struct.error, TypeError), e:
+                    print "Got Error during SSL Record decryption: %s" % e
+                    break
+
+            # Get mtime 
+            try:
+                dbh.execute("select pcap.ts_sec from pcap where pcap.id=%r", fd.get_packet_id(0))
+                metamtime=dbh.fetch()['ts_sec']
+            except (DB.DBError, TypeError), e:
+                pyflaglog.log(pyflaglog.WARNING, "Failed to determine mtime of newly created stream %s" % self.inode)
+                metamtime=None
+
+            # add a VFS entry using the stream VFS ('S')
+            self.fsfd.VFSCreate(None, new_inode, new_path, size=out_fd_len, mtime=metamtime, inode_id=new_inode_id)
+            
+            # record the new_id
+            new_ids.append(new_inode_id)
+        
+        # now that we know both new_ids, add to the connection table
+        dbh.execute("insert into connection_details (inode_id, reverse, src_ip, src_port, dest_ip, dest_port, isn, ts_sec, type) (select %r, %r, src_ip, src_port, dest_ip, dest_port, isn, ts_sec, type from connection_details where inode_id=%r)", (new_ids[0], new_ids[1], forward_id))
+        dbh.execute("insert into connection_details (inode_id, reverse, src_ip, src_port, dest_ip, dest_port, isn, ts_sec, type) (select %r, %r, src_ip, src_port, dest_ip, dest_port, isn, ts_sec, type from connection_details where inode_id=%r)", (new_ids[1], new_ids[0], reverse_id))
+            
+        # scan both new inodes
+        fwd_fd = self.fsfd.open(inode_id = new_ids[0])
+        rev_fd = self.fsfd.open(inode_id = new_ids[1])
+
+        Scanner.scanfile(self.fsfd, fwd_fd, factories)
+        Scanner.scanfile(self.fsfd, rev_fd, factories)
 
         # add a VFS entry for the combined stream if it doesnt already exits
         # and we have processed both the forward and reverse streams
-        try:
-            fd = self.fsfd.open(inode_id=inode_id)
-            parent = "".join(inode.split('|')[:-1])
-            reverse_inode = "%s|S%d|s%d" % (parent, fd.reverse, fd.reverse)
-            self.fsfd.open(inode=reverse_inode) # raises if the stream can't be opened yet (no keys)
-            new_path = "%s/combined_decrypted" % path[:path.rfind("/")]
+        #try:
+        #    fd = self.fsfd.open(inode_id=inode_id)
+        #    parent = "".join(inode.split('|')[:-1])
+        #    reverse_inode = "%s|S%d|s%d" % (parent, fd.reverse, fd.reverse)
+        #    self.fsfd.open(inode=reverse_inode) # raises if the stream can't be opened yet (no keys)
+        #    new_path = "%s/combined_decrypted" % path[:path.rfind("/")]
 
-            if not self.fsfd.exists(new_path):
-                print "Creating Combined VFS"
-                if inode_id < fd.reverse:
-                    new_inode = "%s|s%d/%d" % (parent, inode_id, fd.reverse)
-                else:
-                    new_inode = "%s|s%d/%d" % (parent, fd.reverse, inode_id)
-                new_inode_id = self.fsfd.VFSCreate(None, new_inode, new_path)
+        #    if not self.fsfd.exists(new_path):
+        #        print "Creating Combined VFS"
+        #        if inode_id < fd.reverse:
+        #            new_inode = "%s|s%d/%d" % (parent, inode_id, fd.reverse)
+        #        else:
+        #            new_inode = "%s|s%d/%d" % (parent, fd.reverse, inode_id)
+        #        new_inode_id = self.fsfd.VFSCreate(None, new_inode, new_path)
 
                 # scan it!
-                fd = self.fsfd.open(inode_id = new_inode_id)
-                Scanner.scanfile(self.fsfd, fd, factories)
+         #       fd = self.fsfd.open(inode_id = new_inode_id)
+         #       Scanner.scanfile(self.fsfd, fd, factories)
 
                 # also poke the HTTP scanner directly if selected
-                for scanner in factories:
-                    if str(scanner.__class__) == "HTTP.HTTPScanner":
-                        print "Calling HTTP Scanner!"
-                        scanner.process_stream(fd, factories)
+         #       for scanner in factories:
+         #           if str(scanner.__class__) == "HTTP.HTTPScanner":
+         #               print "Calling HTTP Scanner!"
+         #               scanner.process_stream(fd, factories)
 
-        except (IOError, TypeError), e:
-            # reverse stream not available yet
-            pass
+        #except (IOError, TypeError), e:
+        #    # reverse stream not available yet
+        #    pass
 
     def process_stream(self, stream, factories):
         if stream.dest_port == 31337:
@@ -167,13 +241,24 @@ class SSLScanner(StreamScannerFactory):
                     dbh.execute("select inode_id from sslkeys where crypt_text=%r", data[:8])
                     row = dbh.fetch()
                     if row:
-                        dbh.execute("update sslkeys set packet_id=%r, key_data=%r where inode_id=%r", (packet_id, data[8:], row['inode_id']))
-                        print "UDP Scanner: KEY complete for inode_id: %s" % row['inode_id']
-                        self.complete_stream(row['inode_id'], factories)
+                        inode_id = row['inode_id']
+                        dbh.execute("update sslkeys set packet_id=%r, key_data=%r where inode_id=%r", (packet_id, data[8:], inode_id))
+
+                        # only call complete when both forward and reverse streams are ready
+                        dbh.execute("select sslkeys.inode_id, packet_id from sslkeys,connection_details where sslkeys.inode_id=connection_details.inode_id and reverse=%r", inode_id)
+                        row = dbh.fetch()
+                        if row and row['packet_id']:
+                            print row
+                            print "UDP Scanner: KEY complete for connection(%s/%s)" % (inode_id, row['inode_id'])
+                            if inode_id < row['inode_id']:
+                                self.complete_stream(inode_id, row['inode_id'], factories)
+                            else:
+                                self.complete_stream(row['inode_id'], inode_id, factories)
                     else:
                         dbh.insert("sslkeys", packet_id=packet_id, crypt_text=data[:8], key_data=data[8:])
 
-                except DB.DBError:
+                except DB.DBError, e:
+                    print "Got DB Error: %s" % e
                     # dont break on re-scan (dupe packet_id), FIXME: should a scanner reset flush the table?
                     pass
         else:
@@ -182,17 +267,21 @@ class SSLScanner(StreamScannerFactory):
                 fwd_fd = self.fsfd.open(inode_id=forward_stream)
                 rev_fd = self.fsfd.open(inode_id=reverse_stream)
 
+                fwd_done, rev_done = (False, False)
                 # Skip the initial (unencrypted) chunks, leaving the stream at the correct
                 # position. We use a Change Cipher Spec record of length 1 to signal the end of
                 # the unencrypted protocol. We process the reverse stream first as it has the 
                 # ServerHello which specifies the chosen cipher.
                 cipher, mac = (None, None)
-                while True:
-                    type, data, length = read_chunk(rev_fd)
-                    if type == 22 and data[0] == '\x02':
-                        (cipher, mac) = parse_handshake(data, length)
-                    if type==20 and length==1:
-                        break
+                try:
+                    while True:
+                        type, data, length = read_chunk(rev_fd)
+                        if type == 22 and data[0] == '\x02':
+                            (cipher, mac) = parse_handshake(data, length)
+                        if type==20 and length==1:
+                            break
+                except (struct.error, TypeError):
+                    return
 
                 if not cipher:
                     print "Unable to find a suitable cipher, cant decrypt this SSL session!"
@@ -208,8 +297,7 @@ class SSLScanner(StreamScannerFactory):
                 row = dbh.fetch()
                 if row:
                     dbh.execute("update sslkeys set inode_id=%r, cipher=%r, mac=%r where packet_id=%r", (reverse_stream, cipher, mac, row['packet_id']))
-                    print "SSL Scanner: KEY complete for inode_id: %s" % reverse_stream
-                    self.complete_stream(reverse_stream, factories)
+                    fwd_done = True
                 else:
                     dbh.insert("sslkeys", inode_id=reverse_stream, cipher=cipher, mac=mac, crypt_text=ciphertext[:8])
 
@@ -228,10 +316,13 @@ class SSLScanner(StreamScannerFactory):
                 row = dbh.fetch()
                 if row:
                     dbh.execute("update sslkeys set inode_id=%r, cipher=%r, mac=%r where packet_id=%r", (forward_stream, cipher, mac, row['packet_id']))
-                    print "SSL Scanner: KEY complete for inode_id: %s" % forward_stream
-                    self.complete_stream(forward_stream, factories)
+                    rev_done = True
                 else:
                     dbh.insert("sslkeys", inode_id=forward_stream, cipher=cipher, mac=mac, crypt_text=ciphertext[:8])
+
+                if(fwd_done and rev_done):
+                    print "SSL Scanner: KEY complete for stream(%s/%s)" % (forward_stream, reverse_stream)
+                    self.complete_stream(forward_stream, reverse_stream, factories)
 
 class SSLCaseTable(FlagFramework.CaseTable):
     """ SSL Table - Stores SSL keys """
