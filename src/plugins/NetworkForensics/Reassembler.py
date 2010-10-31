@@ -167,7 +167,6 @@ class StreamFile(File):
                 fd = CacheManager.MANAGER.open(dbh.case, inode)
                 fds.append(fd)
             except IOError,e:
-                print "IOError while opening fds: %s, %s" % (fds, e)
                 fds.append(-1)
 
         # These are the deltas to be applied to the sequence numbers of each
@@ -333,14 +332,12 @@ class StreamFile(File):
         """ Returns an fd opened to the combined stream """
         ## If we are already a combined stream, we just return ourselves
         inode = self.inode.split("|")[-1]
-        print inode, self.inode
 
         if '/' in inode:
             self.forward_id = int(inode[1:].split("/")[0])
             return self
 
         self.forward_id = self.inode_id
-        print self.forward_id, self.reverse
         fsfd = FileSystem.DBFS(self.case)
         return fsfd.open(inode="%s/%s" % (self.inode,self.reverse))
 

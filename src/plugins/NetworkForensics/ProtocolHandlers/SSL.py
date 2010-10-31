@@ -176,6 +176,7 @@ class SSLScanner(StreamScannerFactory):
                     print "Got Error during SSL Record decryption: %s" % e
                     break
 
+            out_fd.close()
             # Get mtime 
             try:
                 dbh.execute("select pcap.ts_sec from pcap where pcap.id=%r", fd.get_packet_id(0))
@@ -195,42 +196,9 @@ class SSLScanner(StreamScannerFactory):
         dbh.execute("insert into connection_details (inode_id, reverse, src_ip, src_port, dest_ip, dest_port, isn, ts_sec, type) (select %r, %r, src_ip, src_port, dest_ip, dest_port, isn, ts_sec, type from connection_details where inode_id=%r)", (new_ids[1], new_ids[0], reverse_id))
             
         # scan both new inodes
-        fwd_fd = self.fsfd.open(inode_id = new_ids[0])
-        rev_fd = self.fsfd.open(inode_id = new_ids[1])
-
-        Scanner.scanfile(self.fsfd, fwd_fd, factories)
-        Scanner.scanfile(self.fsfd, rev_fd, factories)
-
-        # add a VFS entry for the combined stream if it doesnt already exits
-        # and we have processed both the forward and reverse streams
-        #try:
-        #    fd = self.fsfd.open(inode_id=inode_id)
-        #    parent = "".join(inode.split('|')[:-1])
-        #    reverse_inode = "%s|S%d|s%d" % (parent, fd.reverse, fd.reverse)
-        #    self.fsfd.open(inode=reverse_inode) # raises if the stream can't be opened yet (no keys)
-        #    new_path = "%s/combined_decrypted" % path[:path.rfind("/")]
-
-        #    if not self.fsfd.exists(new_path):
-        #        print "Creating Combined VFS"
-        #        if inode_id < fd.reverse:
-        #            new_inode = "%s|s%d/%d" % (parent, inode_id, fd.reverse)
-        #        else:
-        #            new_inode = "%s|s%d/%d" % (parent, fd.reverse, inode_id)
-        #        new_inode_id = self.fsfd.VFSCreate(None, new_inode, new_path)
-
-                # scan it!
-         #       fd = self.fsfd.open(inode_id = new_inode_id)
-         #       Scanner.scanfile(self.fsfd, fd, factories)
-
-                # also poke the HTTP scanner directly if selected
-         #       for scanner in factories:
-         #           if str(scanner.__class__) == "HTTP.HTTPScanner":
-         #               print "Calling HTTP Scanner!"
-         #               scanner.process_stream(fd, factories)
-
-        #except (IOError, TypeError), e:
-        #    # reverse stream not available yet
-        #    pass
+        for inode in new_ids:
+            fd = self.fsfd.open(inode_id = inode)
+            Scanner.scanfile(self.fsfd, fd, factories)
 
     def process_stream(self, stream, factories):
         if stream.dest_port == 31337:
@@ -242,20 +210,19 @@ class SSLScanner(StreamScannerFactory):
                     row = dbh.fetch()
                     if row:
                         inode_id = row['inode_id']
-                        dbh.execute("update sslkeys set packet_id=%r, key_data=%r where inode_id=%r", (packet_id, data[8:], inode_id))
+                        dbh.execute("update sslkeys set packet_id=%r, key_data=%r where inode_id=%r", (packet_id, data[10:], inode_id))
 
                         # only call complete when both forward and reverse streams are ready
                         dbh.execute("select sslkeys.inode_id, packet_id from sslkeys,connection_details where sslkeys.inode_id=connection_details.inode_id and reverse=%r", inode_id)
                         row = dbh.fetch()
                         if row and row['packet_id']:
-                            print row
                             print "UDP Scanner: KEY complete for connection(%s/%s)" % (inode_id, row['inode_id'])
                             if inode_id < row['inode_id']:
                                 self.complete_stream(inode_id, row['inode_id'], factories)
                             else:
                                 self.complete_stream(row['inode_id'], inode_id, factories)
                     else:
-                        dbh.insert("sslkeys", packet_id=packet_id, crypt_text=data[:8], key_data=data[8:])
+                        dbh.insert("sslkeys", packet_id=packet_id, crypt_text=data[:8], key_data=data[10:])
 
                 except DB.DBError, e:
                     print "Got DB Error: %s" % e
