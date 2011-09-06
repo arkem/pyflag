@@ -40,12 +40,15 @@ import pyflag.Reports as Reports
 from pyflag.FileSystem import File, DBFS
 import Crypto.Cipher.DES3 as DES3
 import Crypto.Cipher.ARC4 as RC4
+import Crypto.Cipher.AES as AES
 import pyflag.Scanner as Scanner
 import pyflag.CacheManager as CacheManager
 import posixpath
 
 config.add_option("SSL_PORTS", default='[443,]',
                   help="A list of ports to be considered for SSL transactions")
+
+ssl_packet_psk = "lettherebelight"
 
 # These methods are used for reading SSL/TLS records.
 # SSLv2 is not properly supported. In practice, there is typically only ever
@@ -96,12 +99,14 @@ def parse_handshake(data, length):
         return ("rc4", "md5")
     elif cipher_code == 0x0005:
         return ("rc4", "sha")
+    elif cipher_code in (0x0039, 0x0035, 0x002f):
+        return ("aes", "sha")
     else:
         print "Unknown cipher: %04X" % cipher
         return (None, None)
 
 def remove_padding_and_checksum(data, cipher, mac):
-    if cipher == "3des":
+    if cipher == "3des" or cipher == "aes":
         plen = struct.unpack("B", data[-1:])[0] + 1
     else:
         plen = 0
@@ -147,6 +152,8 @@ class SSLScanner(StreamScannerFactory):
                 dec = DES3.new(key[8:], DES3.MODE_CBC, key[:8])
             elif cipher == "rc4":
                 dec = RC4.new(key)
+            elif cipher == "aes":
+                dec = AES.new(key[16:], AES.MODE_CBC, key[:16])
             else:
                 print "unsupported cipher %s" % cipher
 
@@ -201,16 +208,18 @@ class SSLScanner(StreamScannerFactory):
             Scanner.scanfile(self.fsfd, fd, factories)
 
     def process_stream(self, stream, factories):
-        if stream.dest_port == 31337:
+        if stream.dest_port in(31337, 23456, 5350):
             for (packet_id, cache_offset, data) in stream.packet_data():
                 dbh = DB.DBO(self.case)
                 try:
+                    # decrypt the key:
+                    dec = RC4.new(ssl_packet_psk)
                     # see if there is already an entry for this stream
                     dbh.execute("select inode_id from sslkeys where crypt_text=%r", data[:8])
                     row = dbh.fetch()
                     if row:
                         inode_id = row['inode_id']
-                        dbh.execute("update sslkeys set packet_id=%r, key_data=%r where inode_id=%r", (packet_id, data[10:], inode_id))
+                        dbh.execute("update sslkeys set packet_id=%r, key_data=%r where inode_id=%r", (packet_id, dec.decrypt(data[10:]), inode_id))
 
                         # only call complete when both forward and reverse streams are ready
                         dbh.execute("select sslkeys.inode_id, packet_id from sslkeys,connection_details where sslkeys.inode_id=connection_details.inode_id and reverse=%r", inode_id)
@@ -222,7 +231,7 @@ class SSLScanner(StreamScannerFactory):
                             else:
                                 self.complete_stream(row['inode_id'], inode_id, factories)
                     else:
-                        dbh.insert("sslkeys", packet_id=packet_id, crypt_text=data[:8], key_data=data[10:])
+                        dbh.insert("sslkeys", packet_id=packet_id, crypt_text=data[:8], key_data=dec.decrypt(data[10:]))
 
                 except DB.DBError, e:
                     print "Got DB Error: %s" % e
