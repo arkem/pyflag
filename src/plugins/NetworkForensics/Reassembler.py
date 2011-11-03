@@ -31,12 +31,13 @@ from pyflag.FileSystem import File
 import pyflag.IO as IO
 from pyflag.FlagFramework import query_type
 from NetworkScanner import *
-import struct,re,os
+import struct,re,os,time
 import reassembler
 from pyflag.ColumnTypes import StringType, IntegerType, TimestampType
 from pyflag.ColumnTypes import InodeIDType, IPType, PCAPTime
 import pyflag.Reports as Reports
 import pyflag.CacheManager as CacheManager
+from pyflag.MatlibPlot import LinePlot
 
 class DataType(StringType):
     hidden = True
@@ -114,8 +115,8 @@ class StreamFile(File):
     def make_tabs(self):
         names, cbs = File.make_tabs(self)
 
-        names.extend( [ "Show Packets", "Combined stream"])
-        cbs.extend([ self.show_packets, self.combine_streams ])
+        names.extend( [ "Show Packets", "Combined stream", "IPID plot"])
+        cbs.extend([ self.show_packets, self.combine_streams, self.ipid_plot ])
 
         return names, cbs
 
@@ -402,6 +403,66 @@ class StreamFile(File):
             where = 'inode_id="%s" ' % combined_fd.lookup_id(),
             case=query['case']
             )
+
+    def ipid_plot(self, query, result):
+        dbh = DB.DBO(self.case)
+
+        base_inode, inode = self.inode.rsplit("|", 1)
+        if "/" in inode:
+            inode = inode.split("/", 1)[0]
+            fsfd = FileSystem.DBFS(self.case)
+            inode_id = fsfd.lookup(inode = "%s|%s" % (base_inode, inode))[-1]
+        else:
+            inode_id = self.lookup_id()
+        # get all packets from the current stream
+        dbh.execute("select id, ipid from `connection` INNER JOIN `pcap` on packet_id = id where inode_id = %r", (inode_id,))
+
+        session_data = ([], [])
+        for row in dbh:
+            session_data[0].append(row['id'])
+            session_data[1].append(row['ipid'])
+
+        # get the start and end times for the stream and widen the interval by 15 minutes
+        dbh.execute("select DATE_ADD(max(ts_sec), INTERVAL 900 SECOND), DATE_SUB(min(ts_sec), INTERVAL 900 SECOND) from `connection`, `pcap` where inode_id = %r and packet_id = id", (inode_id,))
+        row = dbh.fetch()
+        session_max = row["DATE_ADD(max(ts_sec), INTERVAL 900 SECOND)"]
+        session_min = row["DATE_SUB(min(ts_sec), INTERVAL 900 SECOND)"]
+
+        # get the source ip address for the stream
+        dbh.execute("select src_ip from connection_details where inode_id = %r", inode_id)
+        row = dbh.fetch()
+        source_ip = row["src_ip"]
+
+        # get all the packets from this source ip during the interval
+        #dbh.execute("select id, ipid from `pcap` where ts_sec < %r and ts_sec > %r", (session_max, session_min))
+        dbh.execute("select id, ipid from `pcap` INNER JOIN (`connection`, `connection_details`) on connection.inode_id = connection_details.inode_id and connection_details.reverse IS NOT NULL and connection.packet_id = id WHERE src_ip = %r and pcap.ts_sec < %r and pcap.ts_sec > %r", (source_ip, session_max, session_min))
+        
+        other_data = ([], [])
+        for row in dbh:
+        #    if row['id'] not in session_data[0]:
+        #        other_data[0].append(row['id'])
+        #        other_data[1].append(row['ipid'])
+            other_data[0].append(row['id'])
+            other_data[1].append(row['ipid'])
+         
+        lp = LinePlot()
+
+        print query
+        if not query.has_key("download"):
+            lp.plot(zip(other_data[0], other_data[1]), query, result, {'figsize': (12, 8)}, {'color': '0.75'}, zip(session_data[0], session_data[1]))
+            reverse = query.clone()
+            del reverse['inode_id']
+            del reverse['inode']
+            dbh.execute("select reverse from connection_details where inode_id = %r", inode_id)
+            reverse['inode_id'] = dbh.fetch()["reverse"]
+            result.toolbar(link = reverse, icon = "stock_right.png", tooltip = "Reverse Stream")
+
+            download = query.clone()
+            download.default('download', True)
+            result.toolbar(link = download, icon = "filesave.png", tooltip = "Download Plot")
+        else:
+            print "download in query"
+            lp.plot(zip(other_data[0], other_data[1]), query, result, {'figsize': (20, 15)}, {'markersize': 8, 'color': '0.75'}, zip(session_data[0], session_data[1]))
 
     def explain(self, query, result):
         self.fd.explain(query, result)

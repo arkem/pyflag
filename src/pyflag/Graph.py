@@ -64,7 +64,7 @@ class Image:
         import pyflag.Magic as Magic
 
         magic = Magic.MagicResolver()
-        return magic.estimate_type(self.display(), None, None)
+        return magic.estimate_type(self.display(), None, None)[0][1].mime_str()
     
     def SetFormat(self,format):
         """ A function used to set the output format.
