@@ -120,9 +120,8 @@ class StreamFile(File):
                 names.remove(name)
                 cbs.remove(cb)
 
-        names.extend( [ "Show Packets", "Combined stream"])
-        cbs.extend([ self.show_packets, self.combine_streams ])
-
+        names.extend( [ "Show Packets", "Combined stream", "IPID plot"])
+        cbs.extend([ self.show_packets, self.combine_streams, self.ipid_plot ])
         return names, cbs
 
     def read(self,len=None):
