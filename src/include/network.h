@@ -205,25 +205,25 @@ struct packed_tcphdr
   u_int32_t seq;
   u_int32_t ack_seq;
 #  if __BYTE_ORDER == __LITTLE_ENDIAN
-  u_int16_t res1:4;
-  u_int16_t doff:4;
-  u_int16_t fin:1;
-  u_int16_t syn:1;
-  u_int16_t rst:1;
-  u_int16_t psh:1;
-  u_int16_t ack:1;
-  u_int16_t urg:1;
-  u_int16_t res2:2;
+  u_int16_t res1:4,
+   doff:4,
+   fin:1,
+   syn:1,
+   rst:1,
+   psh:1,
+   ack:1,
+   urg:1,
+   res2:2;
 #  elif __BYTE_ORDER == __BIG_ENDIAN
-  u_int16_t doff:4;
-  u_int16_t res1:4;
-  u_int16_t res2:2;
-  u_int16_t urg:1;
-  u_int16_t ack:1;
-  u_int16_t psh:1;
-  u_int16_t rst:1;
-  u_int16_t syn:1;
-  u_int16_t fin:1;
+  u_int16_t doff:4,
+   res1:4,
+   res2:2,
+   urg:1,
+   ack:1,
+   psh:1,
+   rst:1,
+   syn:1,
+   fin:1;
 #  else
 #   error "Adjust your <bits/endian.h> defines"
 #  endif
@@ -247,7 +247,7 @@ struct tcp_struct {
 } __attribute__((packed));
 
 #define tcp_Format q(STRUCT_SHORT, STRUCT_SHORT, STRUCT_INT, STRUCT_INT, \
-		     STRUCT_CHAR, STRUCT_CHAR, STRUCT_SHORT, STRUCT_SHORT)
+		     STRUCT_CHAR, STRUCT_CHAR, STRUCT_SHORT, STRUCT_SHORT, STRUCT_SHORT)
 
 CLASS(TCP, Packet)
      struct tcp_struct packet;

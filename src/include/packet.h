@@ -190,8 +190,9 @@ END_CLASS
     struct struct_property_t *p=talloc(NULL, struct struct_property_t);	\
     p->name=#ref_name;							\
     p->field_type = type;						\
-    p->item = (typeof(p->item))(&((typeof(this->struct_member_name) *)0)->member); \
-    p->size = sizeof(this->struct_member_name.member);			
+    p->item = (typeof(p->item))(long)(&((typeof(this->struct_member_name) *)0)->member); \
+    p->size = sizeof(this->struct_member_name.member);			\
+    printf("p->name: %s, p->item: %d, p->size: %d\n", p->name, p->item, p->size);
 
 #define __NAME_ACCESS_end(struct_member_name, member, name, type)	\
   list_add_tail(&(p->list), &((Packet)this)->properties.list);		\
@@ -212,7 +213,7 @@ END_CLASS
  */
 #define NAME_ACCESS_SIZE(struct_member_name, member, name, type, size_member) \
   __NAME_ACCESS_start(struct_member_name, member, name, type);		\
-  p->size_p = (int)(&((typeof(this->struct_member_name) *)0)->size_member); \
+  p->size_p = (typeof(p->size_p))(long)(&((typeof(this->struct_member_name) *)0)->size_member); \
   p->size = 0;								\
   __NAME_ACCESS_end(struct_member_name, member, name, type);		  
   

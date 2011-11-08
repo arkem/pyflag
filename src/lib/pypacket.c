@@ -81,15 +81,15 @@ static PyObject *PyPacket_get_item_string(PyPacket *self, char *field);
 
 /* Here we get the property named by field. 
 */
-static PyObject *PyPacket_getattr(PyPacket *self, char *field) {
-  PyObject *result = Py_FindMethod(PyPacket_methods, (PyObject *)self, field);
+static PyObject *PyPacket_getattr(PyObject *self, char *field) {
+  PyObject *result = Py_FindMethod(PyPacket_methods, self, field);
 
   if(result) return result;
 
   //We handle this exception:
   PyErr_Clear();
 
-  return PyPacket_get_item_string(self,field);
+  return PyPacket_get_item_string((PyPacket *)self,field);
 };
 
 static PyObject *encode_property(Packet packet, struct struct_property_t *p) {
@@ -125,7 +125,7 @@ static PyObject *encode_property(Packet packet, struct struct_property_t *p) {
 
     case FIELD_TYPE_INT:
     case FIELD_TYPE_INT_X:
-      result = PyLong_FromUnsignedLong(*(unsigned long int *)item); break;
+      result = PyLong_FromUnsignedLong(*(unsigned int *)item); break;
 
     case FIELD_TYPE_INT32:
     case FIELD_TYPE_INT32_X:
@@ -320,7 +320,7 @@ static PyTypeObject PyPacketType = {
     0,                         /* tp_itemsize */
     (destructor)PyPacket_dealloc, /* tp_dealloc */
     0,                         /* tp_print */
-    PyPacket_getattr,        /* tp_getattr */
+    PyPacket_getattr,          /* tp_getattr */
     0,                         /* tp_setattr */
     0,                         /* tp_compare */
     0,                         /* tp_repr */
