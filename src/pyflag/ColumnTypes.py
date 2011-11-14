@@ -1116,6 +1116,58 @@ class InodeIDType(IntegerType):
         result.toolbar(cb = browse_cb, icon="browse.png",
                        tooltip = "Browse Inodes in table", pane='new')
 
+        def graph_network_inodes(query, result):
+            dbh = DB.DBO(self.case)
+            dbh.execute(sql)
+            inode_list = []
+#           fsfd = FileSystem.DBFS(self.case)
+            for row in dbh:
+                inode_list.append(row['Inode'])
+            dbh.execute("select inode_id, inode from inode where inode_id in (%s)", ",".join([str(x) for x in inode_list]))
+            inode_list = []
+            for row in dbh:
+                #path, inode, inode_id = fsfd.lookup(inode_id=row['Inode'])
+                inode_id = row["inode_id"]
+                inode = row["inode"]
+                if "|S" in inode:
+                    inode_parts = inode.split("|")
+                    for i, p in enumerate(inode_parts):
+                        if p.startswith("S"):
+                            try:
+                                if "/" not in p:
+                                    inode_list.append("|".join(inode_parts[:i]))
+                                else:
+                                    streams = p.split("/")
+                                    inode_list.append("|".join(inode_parts[:i]) \
+                                                      + "|" + streams[0])
+                                    inode_list.append("|".join(inode_parts[:i]) \
+                                                      + "|S" + streams[1])
+                            except RuntimeError:
+                                pass
+            dbh.execute("select inode_id from inode where inode in ('%s')", "','".join(inode_list)) 
+            inode_list = []
+            for row in dbh:
+                inode_list.append(row["inode_id"])
+
+                                
+            print inode_list
+
+            new_query = query.clone()
+            new_query.default("inode_list", ",".join(set([str(x) for x in inode_list])))
+            graph_report = Registry.REPORTS.dispatch(family = 'Network Forensics',
+                                                     report = "IPIDPlot")(None, result)
+            del new_query["family"]
+            del new_query["report"]
+            new_query["family"] = "Network Forensics"
+            new_query["report"] = "IPIDPlot"
+            result.start_form(new_query, pane='parent_pane')
+            graph_report.form(new_query, result)
+            result.end_form()
+        
+        #graph_query = query.clone()
+        result.toolbar(cb = graph_network_inodes, icon="pen.png", pane='parent',\
+                        tooltip = "Plot the IPID of these Inodes")
+
         return self.name
 
 clear_display_hook(InodeIDType)

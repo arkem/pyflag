@@ -22,6 +22,9 @@ try:
     import StringIO
     from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
     import tempfile
+    import matplotlib.dates as dates
+    from matplotlib.ticker import MaxNLocator
+
 except ImportError:
     active = False
 
@@ -37,6 +40,9 @@ class LinePlot(Graph.GenericGraph):
             figure_args = {}
         if not plot_args:
             plot_args = {}
+
+        timestamp = figure_args.pop("timestamp", False)
+
         fig = figure.Figure(**figure_args)
         ax = fig.add_subplot(111)
         x=[]
@@ -47,6 +53,14 @@ class LinePlot(Graph.GenericGraph):
 
         if 'color' not in plot_args:
             plot_args['color'] = 'k' 
+
+
+        if timestamp: # Special case to allow plotting the x axis as time
+            ax.get_xaxis().set_major_formatter(dates.DateFormatter("%d-%m-%Y\n%H:%M:%S"))
+            ax.get_xaxis().set_major_locator(MaxNLocator(6))
+            #x = [dates.epoch2num(i) for i in x]
+            x = dates.epoch2num(x)
+
         ax.plot(x,y , '.', **plot_args)
         ax.grid()
 
@@ -65,6 +79,8 @@ class LinePlot(Graph.GenericGraph):
             for a,b in arg:
                 i.append(a)
                 j.append(b)
+            if timestamp:
+                i = dates.epoch2num(i)
             ax.plot(i,j , '.', **plot_args)
 
         ## Make a temporary file name:
