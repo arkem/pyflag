@@ -469,6 +469,46 @@ class PCAPFile(File):
         else:
             return self.fd.read(row['length'])
 
+class IPStats(Reports.report):
+    """ View IP traffic stats for a given period """
+    #parameters = {'start_date':'string', 'end_date':'string', 'ip_address':'string'}
+    parameters = {}
+    name = "View IP Stats"
+    family = "Network Forensics"
+    description = "Views statistics for a given IP Address"
+
+    def form(self,query,result):
+        try:
+            result.case_selector()
+            #result.date_selector('Start Date', 'start_date')
+            #result.date_selector('End Date', 'end_date')
+            #result.textfield('Target IP Address','ip_address')
+        except KeyError:
+            pass
+
+    def display(self,query,result):
+        dbh = DB.DBO(query['case'])
+        dbh.execute("select unix_timestamp(create_time) as time from INFORMATION_SCHEMA.TABLES where table_schema = %r and table_name = 'top_talkers'",query['case'] )
+        last_updated = dbh.fetch()
+        if not last_updated or last_updated['time'] + 3600 < time.time():
+            dbh.execute("drop table if exists top_talkers")
+            dbh.execute("create table top_talkers select dest_ip,sum(length) as bytes from connection join connection_details using(inode_id) group by dest_ip")
+
+                                        #__target__ = "filter",
+        link = FlagFramework.query_type(case=query['case'],
+                                        family='Network Forensics',
+                                        report='/Network Forensics/View Connections',
+                                        __target__ = 'filter',
+                                        __target_format__ = "'Destination IP'='%s'")
+
+        result.table(
+            elements = [ IPType('Destination IP', 'dest_ip', link=link), IntegerType('Bytes Transfered', 'bytes') ],
+            table = 'top_talkers',
+            case = query['case'],
+            order = 1,
+            direction = 0
+        )
+ 
 class ViewDissectedPacket(Reports.report):
     """ View Dissected packet in a tree. """
     parameters = {'id':'numeric'}

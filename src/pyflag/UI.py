@@ -765,7 +765,8 @@ class TableRenderer:
 
         ## Is there a filter condition?
         if self.filter_str:
-            filter_str = parser.parse_to_sql(self.filter_str, total_elements, ui=None)
+            filter_str = self.filter_str.replace('\r\n', ' ').replace('\n', ' ')
+            filter_str = parser.parse_to_sql(filter_str, total_elements, ui=None)
             if not filter_str: filter_str=1
             
         else: filter_str = 1

@@ -171,14 +171,33 @@ def load_file(filename, processor,  pcap_dbh):
             break
 
         try:
-            pcap_dbh.mass_insert(
-                id = pcap_id,
-                iosource = config.iosource,
-                offset = offset,
-                length = packet.caplen,
-                _ts_sec =  "from_unixtime('%s')" % packet.ts_sec,
-                ts_usec = packet.ts_usec,
+            args = dict(
+                    id = pcap_id,
+                    iosource = config.iosource,
+                    offset = offset,
+                    length = packet.caplen,
+                    _ts_sec =  "from_unixtime('%s')" % packet.ts_sec,
+                    ts_usec = packet.ts_usec,
                 )
+
+            try:
+                args['ipid']= packet.root.eth.payload.id
+            except: pass
+
+            try:
+                args['tcp_ts'] = tcp_ts(packet)
+            except: pass
+
+            pcap_dbh.mass_insert(**args)
+
+            #pcap_dbh.mass_insert(
+            #    id = pcap_id,
+            #    iosource = config.iosource,
+            #    offset = offset,
+            #    length = packet.caplen,
+            #    _ts_sec =  "from_unixtime('%s')" % packet.ts_sec,
+            #    ts_usec = packet.ts_usec,
+            #    )
         except KeyError,e:
             print packet.list()
             print e
