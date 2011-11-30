@@ -1117,14 +1117,17 @@ class InodeIDType(IntegerType):
                        tooltip = "Browse Inodes in table", pane='new')
 
         def graph_network_inodes(query, result):
+            # Run the query to get a list of inodes
             dbh = DB.DBO(self.case)
             dbh.execute(sql)
             inode_list = []
-#           fsfd = FileSystem.DBFS(self.case)
+
             for row in dbh:
                 inode_list.append(row['Inode'])
             dbh.execute("select inode_id, inode from inode where inode_id in (%s)", ",".join([str(x) for x in inode_list]))
             inode_list = []
+
+            # TODO: Replace this with a call to the method in IPID.py
             for row in dbh:
                 #path, inode, inode_id = fsfd.lookup(inode_id=row['Inode'])
                 inode_id = row["inode_id"]
@@ -1135,7 +1138,7 @@ class InodeIDType(IntegerType):
                         if p.startswith("S"):
                             try:
                                 if "/" not in p:
-                                    inode_list.append("|".join(inode_parts[:i]))
+                                    inode_list.append("|".join(inode_parts[:i+1]))
                                 else:
                                     streams = p.split("/")
                                     inode_list.append("|".join(inode_parts[:i]) \
@@ -1148,10 +1151,7 @@ class InodeIDType(IntegerType):
             inode_list = []
             for row in dbh:
                 inode_list.append(row["inode_id"])
-
                                 
-            print inode_list
-
             new_query = query.clone()
             new_query.default("inode_list", ",".join(set([str(x) for x in inode_list])))
             graph_report = Registry.REPORTS.dispatch(family = 'Network Forensics',
@@ -1160,6 +1160,7 @@ class InodeIDType(IntegerType):
             del new_query["report"]
             new_query["family"] = "Network Forensics"
             new_query["report"] = "IPIDPlot"
+            new_query["time_off"] = 30
             result.start_form(new_query, pane='parent_pane')
             graph_report.form(new_query, result)
             result.end_form()

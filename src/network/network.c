@@ -328,20 +328,64 @@ END_VIRTUAL
 *****************************************************/
 int TCP_Read(Packet self, StringIO input) {
   TCP this=(TCP)self;
+  unsigned int count = 0;
+  unsigned char option_kind = 0, option_len = 0;
 
   this->__super__->Read(self, input);
 
   this->packet.len  = this->packet.header.doff * 4;
+
+  this->packet.data_offset = self->start + this->packet.len;
+
+  //printf("input->size: %d\t this->packet.data_offset: %d\t this->packet.len: %d\t self->start: %d\n", input->size, this->packet.data_offset, this->packet.len, self->start);
+  if (input->size < this->packet.data_offset) {
+    this->packet.options_len = 0;
+    this->packet.options = NULL;
+    goto error;
+  }
+
+  if (this->packet.len > 20) {
+    // Populate option field
+    this->packet.options_len = this->packet.len - 20;
+    this->packet.options = talloc_memdup(self, input->data + self->start + 20,
+                                         this->packet.options_len);
+
+    // Break out specific options
+    while(count < this->packet.options_len) {
+        option_kind = (unsigned char)this->packet.options[count];
+        if (option_kind < 2) {
+            count++;
+        } else {
+            if (count + 1 < this->packet.options_len) {
+                option_len = (unsigned char)this->packet.options[count + 1];
+            }
+            // Handle Timestamp field here
+            if ((option_kind == 0x08 )
+                && ((count + option_len) <= this->packet.options_len)
+                && (option_len == 10)) { 
+
+                this->packet.tsval = htonl(*((unsigned int*)&(this->packet.options[count + 2])));
+                this->packet.tsecr = htonl(*((unsigned int*)&(this->packet.options[count + 6])));
+            }
+            // Handle other option fields as necessary here
+            count += option_len;
+        }
+
+    }
+  } else { // No options
+    this->packet.options_len = 0;
+    this->packet.options = NULL;
+  }
+
+  if(input->size <= this->packet.data_offset) 
+    goto error;
+
 
   /** Now we seek to the spot in the input stream where the data
       payload is supposed to start. This could be a few bytes after
       our current position in case the packet has options that we did
       not account for.
   */
-  this->packet.data_offset = self->start + this->packet.len;
-  if(input->size <= this->packet.data_offset) 
-    goto error;
-
   CALL(input, seek, this->packet.data_offset, SEEK_SET);
 
   /** Now populate the data payload of the tcp packet 
@@ -375,7 +419,10 @@ VIRTUAL(TCP, Packet)
      NAME_ACCESS(packet, header.window, window, FIELD_TYPE_SHORT);
      NAME_ACCESS(packet, data_offset, data_offset, FIELD_TYPE_INT);
      NAME_ACCESS(packet, data_len, data_len, FIELD_TYPE_INT);
+     NAME_ACCESS(packet, tsval, tsval, FIELD_TYPE_INT32);
+     NAME_ACCESS(packet, tsecr, tsecr, FIELD_TYPE_INT32);
      NAME_ACCESS_SIZE(packet, data, data, FIELD_TYPE_STRING, data_len);
+     NAME_ACCESS_SIZE(packet, options, options, FIELD_TYPE_STRING, options_len);
 
      VMETHOD(super.Read) = TCP_Read;
 END_VIRTUAL

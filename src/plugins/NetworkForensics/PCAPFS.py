@@ -56,13 +56,15 @@ class NetworkingInit(FlagFramework.EventHandler):
         ### find the data section of this packet.
         case_dbh.execute("""CREATE TABLE if not exists `pcap` (
         `id` INT NOT NULL auto_increment,
-        `ipid` SMALLINT UNSIGNED default 0,
+        `ipid` SMALLINT UNSIGNED default NULL,
         `iosource` varchar(50),
         `offset` BIGINT NOT NULL ,
         `length` INT NOT NULL ,
         `ts_sec` TIMESTAMP NULL DEFAULT '0000-00-00 00:00:00',
         `ts_usec` INT NOT NULL,
-        KEY `id` (`id`)
+        `tcp_ts` INT UNSIGNED default NULL,
+        KEY `id` (`id`),
+        KEY `ts_sec` (`ts_sec`)
         )""")
 
         ## The connection_details table stores information about each
@@ -97,6 +99,7 @@ class NetworkingInit(FlagFramework.EventHandler):
 class ConnectionTable(FlagFramework.CaseTable):
     """ Connection table - contains infomation about all packets involved in a connection """
     name = 'connection'
+    index = [ 'inode_id', 'packet_id' ]
     columns = [
         [ InodeIDType, {} ],
         [ IntegerType, dict(name='Original ID', column ='original_id')],
@@ -112,6 +115,7 @@ class ConnectionTable(FlagFramework.CaseTable):
 class ConnectionDetailsTable(FlagFramework.CaseTable):
     """ Connection Details - Contains details about each connection """
     name ='connection_details'
+    index = [ 'inode_id', 'src_ip' ]
     columns = [
         [ InodeIDType, {} ],
         [ IntegerType, dict(name='Reverse', column='reverse')],
@@ -366,11 +370,15 @@ class PCAPFS(DBFS):
                     args['ipid']= packet.root.eth.payload.id
                 except: pass
 
+                try:
+                    if packet.root.eth.payload.payload.tsval:
+                        args['tcp_ts']= packet.root.eth.payload.payload.tsval
+                except: pass
+
                 pcap_dbh.mass_insert(**args)
                 #pcap_id = pcap_dbh.autoincrement()
                 pcap_id = max_id
                 pcap_file.set_id(pcap_id)
-
                 
                 ## Some progress reporting
                 if pcap_id % 10000 == 0:

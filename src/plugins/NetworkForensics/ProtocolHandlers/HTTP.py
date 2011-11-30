@@ -577,7 +577,7 @@ class BrowseHTTPRequests(Reports.CaseTableReports):
     name = "Browse HTTP Requests"
     family = "Network Forensics"
     default_table = 'HTTPCaseTable'
-    columns = ['InodeTable.Modified', "InodeTable.Inode", 'Request Packet', 'Method', 'URL', 'Content Type' ]
+    columns = ['InodeTable.Modified', "InodeTable.Inode", 'Request Packet', 'Method', 'URL', 'Content Type', 'User Agent', 'TLD' ]
     
 class BrowseHTTPRequestsXXX(Reports.report):
     """

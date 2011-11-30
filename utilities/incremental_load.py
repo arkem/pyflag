@@ -185,7 +185,8 @@ def load_file(filename, processor,  pcap_dbh):
             except: pass
 
             try:
-                args['tcp_ts'] = tcp_ts(packet)
+                if packet.root.eth.payload.payload.tsval:
+                    args['tcp_ts'] = packet.root.eth.payload.payload.tsval
             except: pass
 
             pcap_dbh.mass_insert(**args)

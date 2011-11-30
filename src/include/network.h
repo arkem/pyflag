@@ -244,6 +244,12 @@ struct tcp_struct {
   /** The payload data portion */
   int data_len;
   char *data;
+
+  unsigned int tsval;
+  unsigned int options_len;
+  char *options;
+  unsigned int tsecr;
+
 } __attribute__((packed));
 
 #define tcp_Format q(STRUCT_SHORT, STRUCT_SHORT, STRUCT_INT, STRUCT_INT, \

@@ -102,7 +102,7 @@ def parse_handshake(data, length):
     elif cipher_code in (0x0039, 0x0035, 0x002f):
         return ("aes", "sha")
     else:
-        print "Unknown cipher: %04X" % cipher
+        print "Unknown cipher: %04X" % cipher_code
         return (None, None)
 
 def remove_padding_and_checksum(data, cipher, mac):
@@ -240,8 +240,11 @@ class SSLScanner(StreamScannerFactory):
         else:
             forward_stream, reverse_stream = self.stream_to_server(stream, "SSL")
             if reverse_stream:
-                fwd_fd = self.fsfd.open(inode_id=forward_stream)
-                rev_fd = self.fsfd.open(inode_id=reverse_stream)
+                try:
+                    fwd_fd = self.fsfd.open(inode_id=forward_stream)
+                    rev_fd = self.fsfd.open(inode_id=reverse_stream)
+                except IOError:
+                    return
 
                 fwd_done, rev_done = (False, False)
                 # Skip the initial (unencrypted) chunks, leaving the stream at the correct
